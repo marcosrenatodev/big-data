@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: loguser
+      POSTGRES_PASSWORD: logpass
+      POSTGRES_DB: logdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql     # layout 18+
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./geoip:/geoip:ro
+      - ./logs:/logs:ro
+    networks:
+      - benchmark
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loguser -d logdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - benchmark
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      start_period: 40s
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.0
+    container_name: logstash
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/geoip:/usr/share/logstash/geoip:ro
+      - ./logs:/logs:ro
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    environment:
+      - "LS_JAVA_OPTS=-Xmx512m -Xms512m"
+    networks:
+      - benchmark
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - benchmark
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  log_importer:
+    build:
+      context: ./scripts/log_importer
+    image: log_importer:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - benchmark
+    volumes:
+      - ./logs:/logs:ro
+    environment:
+      PGHOST: postgres
+      PGDATABASE: logdb
+      PGUSER: loguser
+      PGPASSWORD: logpass
+      PGPORT: 5432
+    # opcional: mude o arquivo de log aqui, se quiser
+    command: ["/logs/auth.log"]
+    restart: "no"
+
+volumes:
+  postgres_data:
+  elasticsearch_data:
+
+networks:
+  benchmark:
+    driver: bridge
