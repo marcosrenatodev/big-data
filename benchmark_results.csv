@@ -1,0 +1,5 @@
+CSV_CASE;PG_ms_avg;ES_ms_avg
+CSV;A_TopIPs_BR;235391.276;73.667
+CSV;B_TopUsers_failed;103.467;129.667
+CSV;C_TextSearch_failedpwd;258.064;54.667
+CSV;D_TopCountries_failed;102.797;26.667
